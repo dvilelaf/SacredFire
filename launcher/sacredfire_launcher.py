@@ -56,7 +56,8 @@ GAME = "Crash Team Racing: Nitro-Fueled"
 
 # Choices: (label, value); the first is the default.
 UI_LANGUAGES = [("System", ""), ("English", "en"), ("Русский", "ru"), ("Português (Brasil)", "pt_BR")]
-LANGUAGES = [("English", "1"), ("French", "2"), ("Spanish", "3"), ("German", "4"),
+LANGUAGES = [("English", "1"), ("French", "2"), ("Spanish", "3"),
+             ("Spanish (Latin America)", "20"), ("German", "4"),
              ("Italian", "5"), ("Japanese", "0"), ("Russian", "8")]
 PRESENT_MODES = [("Mailbox", "Mailbox"), ("FIFO (VSync)", "Fifo"),
                  ("FIFO Relaxed", "FifoRelaxed"), ("Immediate", "Immediate")]
