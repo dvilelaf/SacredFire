@@ -217,10 +217,46 @@ bool GuardLabel(std::uint64_t address, std::uint64_t value, std::uint32_t bytes,
                 (ours = last.value.load(std::memory_order_relaxed), true) &&
                 std::memcmp(now_words, &ours, bytes) == 0;
             if (!port_wrote) {
-                rebuilt = true;
-                std::snprintf(why, sizeof(why), "the slot held %08x%s at submit and holds %08x%s now",
-                              at_submit[0], dwords == 2 ? " .." : "", now_words[0],
-                              dwords == 2 ? " .." : "");
+                // bbport: a change since the submission is not by itself a rebuild. The game
+                // clears its own fence slot with a DMA fill inside the very buffer it submits,
+                // and the label write that follows is the value the game then waits for: on the
+                // hardware that write always lands. Only a slot that now holds a packet header
+                // (the dangerous case, the clobbered dword) is dropped; with BB_CLOBBER_FENCE=1 a
+                // slot that simply holds a fence (0, or the value itself) is written instead.
+                static const bool write_fences = [] {
+                    const char* env = std::getenv("BB_CLOBBER_FENCE");
+                    return env && env[0] == '1';
+                }();
+                const bool header = LooksLikeType3Header(now_words[0]) ||
+                                    (dwords == 2 && LooksLikeType3Header(now_words[1]));
+                const bool already = std::memcmp(now_words, &value, bytes) == 0;
+                if (header) {
+                    rebuilt = true;
+                    std::snprintf(why, sizeof(why), "the slot now holds the packet header %08x",
+                                  LooksLikeType3Header(now_words[0]) ? now_words[0] : now_words[1]);
+                } else if (already) {
+                    rebuilt = true;
+                    std::snprintf(why, sizeof(why), "the slot already holds the value");
+                } else if (write_fences) {
+                    static std::atomic<std::uint64_t> written{0};
+                    const std::uint64_t n = written.fetch_add(1, std::memory_order_relaxed) + 1;
+                    if (n <= 8 || n % 100 == 0) {
+                        std::fprintf(stderr,
+                                     "Late label written: %s of %u bytes, value %#llx, to %#llx from "
+                                     "submission %llu was dropped by the rebuild rule before "
+                                     "(BB_CLOBBER_FENCE=1; submitted %.2f ms ago; written %llu): the "
+                                     "write goes through\n",
+                                     SourceName(source), bytes, (unsigned long long)value,
+                                     (unsigned long long)address, (unsigned long long)packet_seq,
+                                     (NowNs() - hit->ns) / 1e6, (unsigned long long)n);
+                        std::fflush(stderr);
+                    }
+                } else {
+                    rebuilt = true;
+                    std::snprintf(why, sizeof(why), "the slot held %08x%s at submit and holds %08x%s now",
+                                  at_submit[0], dwords == 2 ? " .." : "", now_words[0],
+                                  dwords == 2 ? " .." : "");
+                }
             }
         }
     } else {
