@@ -63,10 +63,34 @@ race. What the dump cannot say — and the reason for the next step — is *whic
   `Vulkan::Rasterizer::RunDrawPacket`, exactly what the port's own stack traces printed.
 * `logs/dump-analyze.py` does the grouping and symbolising (edit its LOG and base table).
 
-## Next step
+## Outcome (2026-10-17)
+
+The dump, the `/proc/<pid>/maps` and the per-thread `wchan`/CPU/`syscall`/`fd` snapshots the
+watcher takes now made two different stalls visible, and one of them had a cause in the port:
+
+* **17 Oct 00:59, game still on the disk array**: the process used 2 ticks of CPU per second and
+  the main thread sat in state `D`, `wchan=folio_wait_bit_common` — a file read that did not come
+  back. The game's data lived on `md127` (a RAID1 of two 4 TB IronWolf **hard disks**) with btrfs,
+  which syncthing also scans (`/media/david/DATA/repos`). Not a port bug: the read eventually
+  returns. The game was copied to the NVMe (`/home/david/Juegos`, ext4) — faster loads, and that
+  stall is gone.
+* **17 Oct 01:12, game on the NVMe**: no disk involved. The port's GPU command thread
+  (`AmdGpu::Liverpool::Process` / `ProcessGraphics`) was **running** at a full core (105 ticks/s)
+  while every other thread waited, and the log's last lines were `Late label guarded ... the write
+  is dropped` — the unpatched guard, because this run came from the AppImage. Four captured freezes
+  all show the guard dropping a fence; the two sessions that **wrote** the fence instead
+  (`BB_CLOBBER_FENCE=1`, 168 and 870 labels, no `Bad PM4`) played 4.5 and 24 minutes with races and
+  never froze. The writing behaviour is therefore the default now, with `BB_CLOBBER_FENCE=0` to get
+  the old drop back.
+
+`Late label guarded` in the wild is what to look for: if a freeze happens with drops in the log,
+this fix did not cover the case and the dump (with the port's own state printed) is the next step.
+
+## Next step if it happens again
 
 A dump that names the missing signal: at the dump, print for each waiting thread the primitive and
 its object — event flag id, the pattern it waits for and the flag's current bits; semaphore id and
-count — plus the guest thread name the runtime already knows (it prints them at creation). With
-that, one more freeze says whether the game is waiting on a fence whose label write was dropped, on
-a semaphore a stuck thread never signals, or on something else entirely.
+count — plus the guest thread name the runtime already knows (it prints them at creation), and what
+the GPU command thread itself is waiting for.
+
+

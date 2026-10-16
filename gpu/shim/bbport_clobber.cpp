@@ -224,8 +224,11 @@ bool GuardLabel(std::uint64_t address, std::uint64_t value, std::uint32_t bytes,
                 // (the dangerous case, the clobbered dword) is dropped; with BB_CLOBBER_FENCE=1 a
                 // slot that simply holds a fence (0, or the value itself) is written instead.
                 static const bool write_fences = [] {
+                    // On by default (2026-10-17): four captured freezes had the guard dropping
+                    // exactly the fence the game was waiting for, and two sessions with the
+                    // write (1038 labels) ran clean. BB_CLOBBER_FENCE=0 restores the old drop.
                     const char* env = std::getenv("BB_CLOBBER_FENCE");
-                    return env && env[0] == '1';
+                    return !(env && env[0] == '0');
                 }();
                 const bool header = LooksLikeType3Header(now_words[0]) ||
                                     (dwords == 2 && LooksLikeType3Header(now_words[1]));
@@ -243,9 +246,9 @@ bool GuardLabel(std::uint64_t address, std::uint64_t value, std::uint32_t bytes,
                     if (n <= 8 || n % 100 == 0) {
                         std::fprintf(stderr,
                                      "Late label written: %s of %u bytes, value %#llx, to %#llx from "
-                                     "submission %llu was dropped by the rebuild rule before "
-                                     "(BB_CLOBBER_FENCE=1; submitted %.2f ms ago; written %llu): the "
-                                     "write goes through\n",
+                                     "submission %llu (the rebuild rule would have dropped it; "
+                                     "BB_CLOBBER_FENCE=0 restores that; submitted %.2f ms ago; "
+                                     "written %llu): the write goes through\n",
                                      SourceName(source), bytes, (unsigned long long)value,
                                      (unsigned long long)address, (unsigned long long)packet_seq,
                                      (NowNs() - hit->ns) / 1e6, (unsigned long long)n);
